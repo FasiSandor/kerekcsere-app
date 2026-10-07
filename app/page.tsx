@@ -21,7 +21,7 @@ type CarState = {
   brakeFluid:string; timingDate:string; timingKm:number; timingInterval:number;
 };
 type ServiceEntry = { id:string; date:string; title:string; mileage:number; note:string };
-type Diagnostic = { id:string; date:string; codes:string[]; note:string; resolved:boolean };
+type Diagnostic = { id:string; date:string; codes:string[]; note:string; resolved:boolean; severity?:"low"|"medium"|"high"; summary?:string; advice?:string };
 
 const PLACES: Place[] = [
   { name:"Törökszentmiklós", lat:47.1833, lon:20.4167 },
@@ -71,6 +71,50 @@ function analyze(days:WeatherDay[], tire:Tire){
   }
   if(warm10>=8 && frost<0) return {level:"warning", title:"Nyári csere tervezhető", text:"Tartós melegedés látszik fagyveszély nélkül.", eta:"1–2 héten belül"};
   return {level:"ok", title:"Téli gumi megfelelő", text:"A hőmérsékleti trend alapján maradhat a téli garnitúra.", eta:"rendben"};
+}
+function explainCodes(codes:string[]){
+  const known:Record<string,{summary:string;severity:"low"|"medium"|"high";advice:string}> = {
+    P0420:{summary:"Katalizátor hatásfok a küszöb alatt (Bank 1)",severity:"medium",advice:"Érdemes lambda-szonda, kipufogó-szivárgás és katalizátor irányban diagnosztizálni. Ne csak töröld a kódot."},
+    P0430:{summary:"Katalizátor hatásfok a küszöb alatt (Bank 2)",severity:"medium",advice:"Katalizátor/lambda-szonda és kipufogórendszer ellenőrzése javasolt."},
+    P0171:{summary:"Túl szegény keverék (Bank 1)",severity:"medium",advice:"Levegőszivárgás, MAF, üzemanyag-ellátás és keverékszabályzás ellenőrzése javasolt."},
+    P0172:{summary:"Túl dús keverék (Bank 1)",severity:"medium",advice:"MAF, injektorok, üzemanyagnyomás és lambda-szabályzás ellenőrzése javasolt."},
+    P0299:{summary:"Turbónyomás túl alacsony",severity:"medium",advice:"Töltőlevegő-csövek, vákuum/aktuátor, turbó és nyomásszabályzás ellenőrzése javasolt."},
+    P0234:{summary:"Turbónyomás túl magas",severity:"high",advice:"Kerüld a nagy terhelést, amíg a töltőnyomás-szabályzás nincs ellenőrizve."},
+    P0401:{summary:"EGR-áramlás elégtelen",severity:"medium",advice:"EGR-szelep, járatok és vezérlés ellenőrzése/tisztítása javasolt."},
+    P0402:{summary:"EGR-áramlás túl nagy",severity:"medium",advice:"EGR-szelep és vezérlés ellenőrzése javasolt."},
+    P0101:{summary:"MAF jel tartomány/teljesítmény hiba",severity:"medium",advice:"Légszűrőház, csatlakozók, fals levegő és MAF ellenőrzése javasolt."},
+    P0562:{summary:"Rendszerfeszültség túl alacsony",severity:"high",advice:"Akkumulátor, generátor és töltőrendszer ellenőrzése javasolt, különösen hideg idő előtt."},
+    P0563:{summary:"Rendszerfeszültség túl magas",severity:"high",advice:"Töltésszabályzás/generátor ellenőrzése mielőbb javasolt."},
+    P0606:{summary:"Motorvezérlő processzorhiba",severity:"high",advice:"Ne hagyd figyelmen kívül; szakműhelyes diagnosztika indokolt."},
+    P0700:{summary:"Váltóvezérlő hibát jelzett",severity:"high",advice:"A váltóvezérlő saját hibakódjait is ki kell olvasni."},
+    U0100:{summary:"Kommunikáció megszakadt a motorvezérlővel",severity:"high",advice:"Tápellátás, CAN-hálózat, csatlakozók és vezérlők ellenőrzése javasolt."},
+    U0121:{summary:"Kommunikáció megszakadt az ABS vezérlővel",severity:"high",advice:"ABS/CAN tápellátás és kommunikáció ellenőrzése javasolt."}
+  };
+  if(!codes.length) return {severity:"low" as const,summary:"Riport mentve, szabványos OBD-kód nem azonosítható.",advice:"A Carly szöveget megőriztük. Ha van külön hibakód-lista, másold be azt is."};
+  let severity:"low"|"medium"|"high"="low";
+  const summaries:string[]=[];
+  const advice:string[]=[];
+  for(const code of codes){
+    if(/^P03\d\d$/.test(code)){
+      summaries.push(code+": Gyújtáskimaradás / égéskimaradás");
+      severity="high";
+      advice.push("Ha rángat vagy villog a motorhiba-lámpa, kerüld a nagy terhelést és vizsgáltasd át.");
+      continue;
+    }
+    const k=known[code];
+    if(k){
+      summaries.push(code+": "+k.summary);
+      if(k.severity==="high" || (k.severity==="medium"&&severity==="low")) severity=k.severity;
+      advice.push(k.advice);
+      continue;
+    }
+    if(code.startsWith("P")) summaries.push(code+": hajtáslánc / motor-váltó jellegű OBD-kód");
+    else if(code.startsWith("B")) summaries.push(code+": karosszéria/komfort rendszer kód");
+    else if(code.startsWith("C")) summaries.push(code+": futómű/ABS rendszer kód");
+    else if(code.startsWith("U")){summaries.push(code+": kommunikációs/hálózati kód"); if(severity==="low") severity="medium";}
+  }
+  if(!advice.length) advice.push("A pontos jelentés típus- és vezérlőfüggő lehet; a Carly részletes leírásával együtt értékeld.");
+  return {severity,summary:summaries.join(" · "),advice:Array.from(new Set(advice)).join(" ")};
 }
 function uid(){ return Math.random().toString(36).slice(2)+Date.now().toString(36); }
 
@@ -175,9 +219,10 @@ export default function App(){
   function importCarly(){
     const codes=Array.from(new Set((carlyText.toUpperCase().match(/\b[PCBU][0-9A-F]{4}\b/g)||[])));
     if(!carlyText.trim()) return;
-    setDiagnostics(d=>[{id:uid(),date:new Date().toISOString().slice(0,10),codes,note:carlyText.trim().slice(0,900),resolved:false},...d]);
+    const explanation=explainCodes(codes);
+    setDiagnostics(d=>[{id:uid(),date:new Date().toISOString().slice(0,10),codes,note:carlyText.trim().slice(0,900),resolved:false,...explanation},...d]);
     setCarlyText("");
-    setNotice(codes.length?codes.length+" Carly hibakód elmentve":"Carly riport elmentve");
+    setNotice(codes.length?codes.length+" Carly hibakód elemezve és elmentve":"Carly riport elmentve");
   }
 
   const HomeView=()=> <div className="view">
@@ -294,10 +339,10 @@ export default function App(){
 
     <section className="panel carly">
       <div className="carlyHead"><div className="carlyLogo">C</div><div><small>CARLY</small><h3>Diagnosztika napló</h3></div></div>
-      <p className="muted">Másold be a Carly riport szövegét vagy a hibakódokat. Az app felismeri a P/B/C/U OBD-kódokat és eltárolja őket.</p>
+      <p className="muted">Másold be a Carly riport szövegét vagy a hibakódokat. Az app felismeri a P/B/C/U OBD-kódokat, ad egy érthető első értékelést és eltárolja őket.</p>
       <textarea className="carlyInput" placeholder="pl. P0420, P0301 vagy Carly riport..." value={carlyText} onChange={e=>setCarlyText(e.target.value)}/>
       <button className="primaryBtn" onClick={importCarly}><ClipboardList size={18}/> Carly riport mentése</button>
-      <div className="diagList">{diagnostics.map(d=><article className="diag" key={d.id}><div><b>{d.codes.length?d.codes.join(" · "):"Riport"}</b><small>{d.date}</small><p>{d.note}</p></div><div className="diagActions"><button className={d.resolved?"resolved":""} onClick={()=>setDiagnostics(x=>x.map(v=>v.id===d.id?{...v,resolved:!v.resolved}:v))}>{d.resolved?"Megoldva":"Aktív"}</button><button onClick={()=>setDiagnostics(x=>x.filter(v=>v.id!==d.id))}><Trash2 size={16}/></button></div></article>)}</div>
+      <div className="diagList">{diagnostics.map(d=><article className="diag" key={d.id}><div><div className="diagTitle"><b>{d.codes.length?d.codes.join(" · "):"Riport"}</b>{d.severity&&<span className={"severity "+d.severity}>{d.severity==="high"?"Sürgős":d.severity==="medium"?"Figyeld":"Enyhe"}</span>}</div><small>{d.date}</small>{d.summary&&<p className="diagSummary">{d.summary}</p>}{d.advice&&<p className="diagAdvice"><strong>Teendő:</strong> {d.advice}</p>}<details><summary>Eredeti Carly szöveg</summary><p>{d.note}</p></details></div><div className="diagActions"><button className={d.resolved?"resolved":""} onClick={()=>setDiagnostics(x=>x.map(v=>v.id===d.id?{...v,resolved:!v.resolved}:v))}>{d.resolved?"Megoldva":"Aktív"}</button><button onClick={()=>setDiagnostics(x=>x.filter(v=>v.id!==d.id))}><Trash2 size={16}/></button></div></article>)}</div>
     </section>
   </div>;
 
