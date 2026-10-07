@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Bell, Check, ChevronRight, Home, LocateFixed, MapPin, Settings, ShieldCheck, Snowflake, Sun, ThermometerSnowflake, Wrench } from "lucide-react";
+import { AlertTriangle, Bell, Check, ChevronRight, Home as HomeIcon, LocateFixed, MapPin, Settings, ShieldCheck, Snowflake, Sun, ThermometerSnowflake, Wrench } from "lucide-react";
 
 type Tire = "summer" | "winter";
 type WeatherDay = { date:string; max:number; min:number; code:number; snow:number; rain:number };
@@ -134,7 +134,7 @@ export default function Home(){
 
     {notice&&<div className="notice">{notice}</div>}
 
-    <nav><button className="active"><Home/><span>Főoldal</span></button><button><ThermometerSnowflake/><span>Előrejelzés</span></button><button><Wrench/><span>Szerviz</span></button><button onClick={()=>setSettingsOpen(true)}><Settings/><span>Profil</span></button></nav>
+    <nav><button className="active"><HomeIcon/><span>Főoldal</span></button><button><ThermometerSnowflake/><span>Előrejelzés</span></button><button><Wrench/><span>Szerviz</span></button><button onClick={()=>setSettingsOpen(true)}><Settings/><span>Profil</span></button></nav>
 
     {settingsOpen&&<div className="backdrop" onClick={()=>setSettingsOpen(false)}><div className="sheet" onClick={e=>e.stopPropagation()}>
       <div className="handle"></div><div className="sheetTitle"><div><small>BEÁLLÍTÁSOK</small><h2>Kerékcsere figyelő</h2></div><button onClick={()=>setSettingsOpen(false)}>×</button></div>
