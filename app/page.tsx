@@ -127,6 +127,7 @@ export default function App(){
   const [diagnostics,setDiagnostics]=useState<Diagnostic[]>([]);
   const [settingsOpen,setSettingsOpen]=useState(false);
   const [notice,setNotice]=useState("");
+  const [hydrated,setHydrated]=useState(false);
   const [serviceForm,setServiceForm]=useState({date:new Date().toISOString().slice(0,10),title:"",mileage:"",note:""});
   const [carlyText,setCarlyText]=useState("");
   const tire=car.currentTire;
@@ -140,12 +141,34 @@ export default function App(){
     if(c){try{setCar({...DEFAULT_CAR,...JSON.parse(c)})}catch{}}
     if(s){try{setServices(JSON.parse(s))}catch{}}
     if(d){try{setDiagnostics(JSON.parse(d))}catch{}}
+    const params=new URLSearchParams(window.location.search);
+    const openTab=params.get("tab");
+    if(openTab==="home"||openTab==="forecast"||openTab==="garage"||openTab==="profile")setTab(openTab);
     if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(()=>{});
+    setHydrated(true);
   },[]);
 
   useEffect(()=>{ localStorage.setItem("kerekcsere:car",JSON.stringify(car)); },[car]);
   useEffect(()=>{ localStorage.setItem("kerekcsere:services",JSON.stringify(services)); },[services]);
   useEffect(()=>{ localStorage.setItem("kerekcsere:diagnostics",JSON.stringify(diagnostics)); },[diagnostics]);
+
+  useEffect(()=>{
+    if(!hydrated)return;
+    const timer=window.setTimeout(()=>{
+      fetch("/api/calendar",{
+        method:"POST",
+        headers:{"content-type":"application/json"},
+        body:JSON.stringify({items:[
+          {key:"technical",title:"Ford Focus · Műszaki vizsga",date:car.technical,note:"Kerékcsere app · Jármű határidő"},
+          {key:"insurance",title:"Ford Focus · Biztosítás",date:car.insurance,note:"Kerékcsere app · Jármű határidő"},
+          {key:"vignette",title:"Ford Focus · Autópálya matrica",date:car.vignette,note:"Kerékcsere app · Jármű határidő"},
+          {key:"brake-fluid",title:"Ford Focus · Fékfolyadék",date:car.brakeFluid,note:"Kerékcsere app · Karbantartási határidő"},
+          {key:"timing",title:"Ford Focus · Vezérlés",date:car.timingDate,note:"Kerékcsere app · Karbantartási határidő"}
+        ]})
+      }).catch(()=>{});
+    },500);
+    return()=>window.clearTimeout(timer);
+  },[hydrated,car.technical,car.insurance,car.vignette,car.brakeFluid,car.timingDate]);
 
   useEffect(()=>{
     const run=async()=>{
