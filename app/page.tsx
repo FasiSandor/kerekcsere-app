@@ -119,7 +119,7 @@ function explainCodes(codes:string[]){
 function uid(){ return Math.random().toString(36).slice(2)+Date.now().toString(36); }
 
 export default function App(){
-  const [tab,setTab]=useState<Tab>("home");
+  const [tab,setTab]=useState<Tab>(()=>{if(typeof window==="undefined")return "home";const t=new URLSearchParams(window.location.search).get("tab");return t==="forecast"||t==="garage"||t==="profile"?t:"home"});
   const [place,setPlace]=useState<Place>(PLACES[0]);
   const [days,setDays]=useState<WeatherDay[]>([]);
   const [car,setCar]=useState<CarState>(DEFAULT_CAR);
