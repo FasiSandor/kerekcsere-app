@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [main]
+    branches: [main, calendar-core-backup-20261012]
   pull_request:
 
 jobs:

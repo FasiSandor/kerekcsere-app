@@ -119,7 +119,7 @@ function explainCodes(codes:string[]){
 function uid(){ return Math.random().toString(36).slice(2)+Date.now().toString(36); }
 
 export default function App(){
-  const [tab,setTab]=useState<Tab>("home");
+  const [tab,setTab]=useState<Tab>(()=>{if(typeof window==="undefined")return "home";const t=new URLSearchParams(window.location.search).get("tab");return t==="forecast"||t==="garage"||t==="profile"?t:"home"});
   const [place,setPlace]=useState<Place>(PLACES[0]);
   const [days,setDays]=useState<WeatherDay[]>([]);
   const [car,setCar]=useState<CarState>(DEFAULT_CAR);
@@ -144,6 +144,37 @@ export default function App(){
   },[]);
 
   useEffect(()=>{ localStorage.setItem("kerekcsere:car",JSON.stringify(car)); },[car]);
+  useEffect(()=>{
+    const items=[
+      {id:"technical",title:"Műszaki vizsga",date:car.technical},
+      {id:"insurance",title:"Biztosítás",date:car.insurance},
+      {id:"vignette",title:"Autópálya matrica",date:car.vignette},
+      {id:"brake-fluid",title:"Fékfolyadék csere",date:car.brakeFluid},
+      {id:"timing",title:"Vezérlés",date:car.timingDate}
+    ].filter(x=>x.date);
+    if(!items.length)return;
+    const t=window.setTimeout(()=>{
+      items.forEach(x=>fetch("/api/calendar-core",{
+        method:"POST",
+        headers:{"content-type":"application/json"},
+        body:JSON.stringify({
+          title:x.title,date:x.date,allDay:true,timezone:"Europe/Budapest",
+          category:"personal",location:"",note:"Kerékcsere app · Ford Focus LZE-585",
+          sourceApp:"kerekcsere-app",sourceRecordId:"LZE-585:"+x.id,
+          sourceUrl:"https://kerekcsere-app.vercel.app/?tab=garage",
+          metadata:{
+            linkedApp:"kerekcsere-app",
+            linkedLabel:"Kerékcsere · Szerviz és határidők",
+            linkedUrl:"https://kerekcsere-app.vercel.app/?tab=garage",
+            vehicle:"Ford Focus LZE-585",kind:x.id
+          }
+        })
+      }).catch(()=>{}));
+    },600);
+    return()=>window.clearTimeout(t);
+  },[car.technical,car.insurance,car.vignette,car.brakeFluid,car.timingDate]);
+
+
   useEffect(()=>{ localStorage.setItem("kerekcsere:services",JSON.stringify(services)); },[services]);
   useEffect(()=>{ localStorage.setItem("kerekcsere:diagnostics",JSON.stringify(diagnostics)); },[diagnostics]);
 
