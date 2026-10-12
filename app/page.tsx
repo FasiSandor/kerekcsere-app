@@ -129,6 +129,7 @@ export default function App(){
   const [notice,setNotice]=useState("");
   const [serviceForm,setServiceForm]=useState({date:new Date().toISOString().slice(0,10),title:"",mileage:"",note:""});
   const [carlyText,setCarlyText]=useState("");
+  const [hydrated,setHydrated]=useState(false);
   const tire=car.currentTire;
 
   useEffect(()=>{
@@ -141,42 +142,45 @@ export default function App(){
     if(s){try{setServices(JSON.parse(s))}catch{}}
     if(d){try{setDiagnostics(JSON.parse(d))}catch{}}
     if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(()=>{});
+    setHydrated(true);
   },[]);
 
-  useEffect(()=>{ localStorage.setItem("kerekcsere:car",JSON.stringify(car)); },[car]);
+  useEffect(()=>{ if(hydrated)localStorage.setItem("kerekcsere:car",JSON.stringify(car)); },[car,hydrated]);
   useEffect(()=>{
+    if(!hydrated)return;
     const items=[
       {id:"technical",title:"Műszaki vizsga",date:car.technical},
       {id:"insurance",title:"Biztosítás",date:car.insurance},
       {id:"vignette",title:"Autópálya matrica",date:car.vignette},
       {id:"brake-fluid",title:"Fékfolyadék csere",date:car.brakeFluid},
       {id:"timing",title:"Vezérlés",date:car.timingDate}
-    ].filter(x=>x.date);
-    if(!items.length)return;
+    ];
     const t=window.setTimeout(()=>{
-      items.forEach(x=>fetch("/api/calendar-core",{
-        method:"POST",
-        headers:{"content-type":"application/json"},
-        body:JSON.stringify({
-          title:x.title,date:x.date,allDay:true,timezone:"Europe/Budapest",
+      items.forEach(x=>{
+        const base={sourceApp:"kerekcsere-app",sourceRecordId:"LZE-585:"+x.id};
+        const body=x.date?{
+          ...base,title:x.title,date:x.date,allDay:true,timezone:"Europe/Budapest",
           category:"personal",location:"",note:"Kerékcsere app · Ford Focus LZE-585",
-          sourceApp:"kerekcsere-app",sourceRecordId:"LZE-585:"+x.id,
           sourceUrl:"https://kerekcsere-app.vercel.app/?tab=garage",
           metadata:{
-            linkedApp:"kerekcsere-app",
-            linkedLabel:"Kerékcsere · Szerviz és határidők",
+            linkedApp:"Kerékcsere",
+            linkedLabel:x.title+" · Kerékcsere",
             linkedUrl:"https://kerekcsere-app.vercel.app/?tab=garage",
             vehicle:"Ford Focus LZE-585",kind:x.id
           }
-        })
-      }).catch(()=>{}));
+        }:{...base,deleted:true};
+        fetch("/api/calendar-core",{
+          method:"POST",
+          headers:{"content-type":"application/json"},
+          body:JSON.stringify(body)
+        }).catch(()=>{});
+      });
     },600);
     return()=>window.clearTimeout(t);
-  },[car.technical,car.insurance,car.vignette,car.brakeFluid,car.timingDate]);
+  },[hydrated,car.technical,car.insurance,car.vignette,car.brakeFluid,car.timingDate]);
 
-
-  useEffect(()=>{ localStorage.setItem("kerekcsere:services",JSON.stringify(services)); },[services]);
-  useEffect(()=>{ localStorage.setItem("kerekcsere:diagnostics",JSON.stringify(diagnostics)); },[diagnostics]);
+  useEffect(()=>{ if(hydrated)localStorage.setItem("kerekcsere:services",JSON.stringify(services)); },[services,hydrated]);
+  useEffect(()=>{ if(hydrated)localStorage.setItem("kerekcsere:diagnostics",JSON.stringify(diagnostics)); },[diagnostics,hydrated]);
 
   useEffect(()=>{
     const run=async()=>{
