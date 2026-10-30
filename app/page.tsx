@@ -56,21 +56,63 @@ function daysUntil(date:string){
   const now=new Date(); now.setHours(12,0,0,0);
   return Math.ceil((d-now.getTime())/86400000);
 }
-function analyze(days:WeatherDay[], tire:Tire){
-  if(!days.length) return {level:"loading", title:"Előrejelzés betöltése", text:"Az időjárási adatok frissülnek.", eta:"—"};
-  const d7=days.slice(0,7), d14=days.slice(0,14);
-  const cold7=d7.filter(d=>(d.max+d.min)/2<=7).length;
-  const frost=d14.findIndex(d=>d.min<=0);
-  const snow=d14.findIndex(d=>d.snow>0 || [71,73,75,77,85,86].includes(d.code));
-  const critical=[frost,snow].filter(i=>i>=0).sort((a,b)=>a-b)[0] ?? -1;
-  const warm10=d14.slice(0,10).filter(d=>(d.max+d.min)/2>8).length;
-  if(tire==="summer"){
-    if(critical>=0 && critical<=7) return {level:"urgent", title:"Kerékcsere javasolt", text:"Fagy vagy havazás közeledhet. Érdemes most téli gumira időpontot foglalni.", eta:critical===0?"most":String(critical+1)+" napon belül"};
-    if(cold7>=3 || (critical>=0 && critical<=13)) return {level:"warning", title:"Készülj a téli cserére", text:"A 7–14 napos trend már hidegebb időt mutat. A csere tervezése indokolt.", eta:critical>=0?String(critical+1)+" napon belül":"1–2 héten belül"};
-    return {level:"ok", title:"Nyári gumi rendben", text:"A következő két hét alapján még nem sürgős a váltás.", eta:"nem sürgős"};
+function longestColdStreak(days:WeatherDay[], threshold:number){
+  let longest=0,current=0;
+  for(const d of days){
+    if(d.min<=threshold){current++;longest=Math.max(longest,current);}else current=0;
   }
-  if(warm10>=8 && frost<0) return {level:"warning", title:"Nyári csere tervezhető", text:"Tartós melegedés látszik fagyveszély nélkül.", eta:"1–2 héten belül"};
-  return {level:"ok", title:"Téli gumi megfelelő", text:"A hőmérsékleti trend alapján maradhat a téli garnitúra.", eta:"rendben"};
+  return longest;
+}
+function shortDate(date:string){
+  return new Intl.DateTimeFormat("hu-HU",{month:"short",day:"numeric"}).format(new Date(date+"T12:00:00"));
+}
+function analyze(days:WeatherDay[], tire:Tire){
+  const empty={level:"loading",title:"Előrejelzés betöltése",text:"Az időjárási adatok frissülnek.",eta:"—",confidence:"—",reasons:[] as string[],coldMornings7:0,veryColdMornings7:0,coldStreak:0,frostIndex:-1,snowIndex:-1,min14:null as number|null,warmDays10:0};
+  if(!days.length) return empty;
+
+  const d7=days.slice(0,7),d10=days.slice(0,10),d14=days.slice(0,14);
+  const coldMornings7=d7.filter(d=>d.min<=7).length;
+  const veryColdMornings7=d7.filter(d=>d.min<=4).length;
+  const coldStreak=longestColdStreak(d7,7);
+  const frostIndex=d14.findIndex(d=>d.min<=0);
+  const snowIndex=d14.findIndex(d=>d.snow>0||[71,73,75,77,85,86].includes(d.code));
+  const min14=Math.min(...d14.map(d=>d.min));
+  const warmDays10=d10.filter(d=>d.min>=8&&d.max>=15).length;
+  const noColdReturn=d10.filter(d=>d.min<5).length===0;
+  const reasons:string[]=[];
+
+  if(tire==="summer"){
+    let score=0;
+    if(frostIndex>=0&&frostIndex<=7){score+=5;reasons.push("Fagy várható "+shortDate(d14[frostIndex].date)+" körül ("+d14[frostIndex].min+" °C).");}
+    else if(frostIndex>=0){score+=3;reasons.push("14 napon belül fagy is megjelenik az előrejelzésben.");}
+    if(snowIndex>=0&&snowIndex<=7){score+=5;reasons.push("Hó/havas csapadék jele látszik "+shortDate(d14[snowIndex].date)+" körül.");}
+    else if(snowIndex>=0){score+=3;reasons.push("A második héten már hó/havas csapadék is lehetséges.");}
+    if(veryColdMornings7>=3){score+=3;reasons.push(veryColdMornings7+" reggelen 4 °C vagy hidegebb várható a következő 7 napban.");}
+    else if(coldMornings7>=4){score+=2;reasons.push(coldMornings7+" reggelen 7 °C vagy hidegebb minimum várható.");}
+    if(coldStreak>=3){score+=2;reasons.push(coldStreak+" egymást követő hideg reggel rajzolódik ki.");}
+    if(min14<=2&&frostIndex<0){score+=1;reasons.push("A 14 napos minimum "+min14+" °C-ig süllyed.");}
+
+    if(score>=7){
+      return {level:"urgent",title:"Téli csere javasolt",text:"Nem egyetlen 7 °C-os nap miatt: több, egymást erősítő hidegjel alapján már indokolt a téli garnitúra.",eta:frostIndex>=0&&frostIndex<=7?String(frostIndex+1)+" napon belül":"most érdemes",confidence:"magas",reasons:reasons.slice(0,4),coldMornings7,veryColdMornings7,coldStreak,frostIndex,snowIndex,min14,warmDays10};
+    }
+    if(score>=3){
+      return {level:"warning",title:"Készülj a téli cserére",text:"A trend már a téli gumi felé mutat, de nem minden jel kritikus. Érdemes időpontot tervezni.",eta:frostIndex>=0?String(frostIndex+1)+" napon belül":"1–2 héten belül",confidence:score>=5?"közepes–magas":"közepes",reasons:reasons.slice(0,4),coldMornings7,veryColdMornings7,coldStreak,frostIndex,snowIndex,min14,warmDays10};
+    }
+    if(!reasons.length) reasons.push("A következő 7 napban nincs tartós hideg reggeli sorozat, fagy vagy hójel.");
+    return {level:"ok",title:"Nyári gumi még rendben",text:"A jelenlegi 14 napos előrejelzés alapján nincs elég erős jel a sürgős téli váltáshoz.",eta:"nem sürgős",confidence:"magas",reasons:reasons.slice(0,4),coldMornings7,veryColdMornings7,coldStreak,frostIndex,snowIndex,min14,warmDays10};
+  }
+
+  const springReasons:string[]=[];
+  if(warmDays10>=7)springReasons.push(warmDays10+" napon legalább 8 °C-os reggel és 15 °C feletti nappal várható.");
+  if(noColdReturn)springReasons.push("A következő 10 napban nem látszik 5 °C alatti visszahűlés.");
+  if(frostIndex<0)springReasons.push("14 napon belül nem jelez fagyot az előrejelzés.");
+
+  if(warmDays10>=7&&noColdReturn&&frostIndex<0){
+    return {level:"warning",title:"Nyári csere tervezhető",text:"A tartós tavaszi melegedés több jel alapján stabilnak látszik.",eta:"1 héten belül tervezhető",confidence:"magas",reasons:springReasons.slice(0,4),coldMornings7,veryColdMornings7,coldStreak,frostIndex,snowIndex,min14,warmDays10};
+  }
+  if(frostIndex>=0)springReasons.unshift("Még visszatérhet a fagy "+shortDate(d14[frostIndex].date)+" körül.");
+  else if(coldMornings7>=3)springReasons.unshift("Még "+coldMornings7+" hideg reggel látszik a következő héten.");
+  return {level:"ok",title:"Téli gumi maradjon",text:"A melegedés még nem elég stabil a nyári váltáshoz.",eta:"még várj",confidence:"közepes–magas",reasons:springReasons.slice(0,4),coldMornings7,veryColdMornings7,coldStreak,frostIndex,snowIndex,min14,warmDays10};
 }
 function explainCodes(codes:string[]){
   const known:Record<string,{summary:string;severity:"low"|"medium"|"high";advice:string}> = {
@@ -286,7 +328,23 @@ export default function App(){
       <div className="days">{days.length?days.map((d,i)=><div className="day" key={d.date}><small>{i===0?"Ma":dayName(d.date)}</small><span>{icon(d.code)}</span><b>{d.max}°</b><i>{d.min}°</i></div>):<p>Friss adatok betöltése…</p>}</div>
     </section>
 
-    <section className={"recommend "+result.level}><div className="recIcon">{result.level==="urgent"||result.level==="warning"?<Snowflake/>:<ShieldCheck/>}</div><div><small>INTELLIGENS FIGYELÉS</small><h2>{result.title}</h2><p>{result.text}</p></div><ChevronRight/></section>
+    <section className={"decisionCard "+result.level}>
+      <div className="decisionTop">
+        <div className="recIcon">{result.level==="urgent"||result.level==="warning"?<Snowflake/>:<ShieldCheck/>}</div>
+        <div className="decisionTitle"><small>INTELLIGENS KERÉKCSERE-DÖNTÉS</small><h2>{result.title}</h2><p>{result.text}</p></div>
+        <span className={"confidence "+result.level}>Bizonyosság: {result.confidence}</span>
+      </div>
+      <div className="decisionMetrics">
+        <div><small>Hideg reggelek · 7 nap</small><b>{result.coldMornings7}/7</b><span>≤ 7 °C minimum</span></div>
+        <div><small>Leghidegebb · 14 nap</small><b>{result.min14===null?"—":result.min14+"°"}</b><span>várható minimum</span></div>
+        <div><small>Hideg sorozat</small><b>{result.coldStreak} nap</b><span>egymás után</span></div>
+      </div>
+      <div className="whyBox">
+        <b>Miért ezt javasolja?</b>
+        {result.reasons.length?<ul>{result.reasons.map((reason,i)=><li key={i}>{reason}</li>)}</ul>:<p>Az előrejelzés frissül.</p>}
+      </div>
+      <button className="detailsBtn" onClick={()=>setTab("forecast")}>Részletes 14 napos elemzés <ChevronRight size={15}/></button>
+    </section>
 
     <section className="quickList">
       <div className="sectionHead"><div><CalendarDays size={20}/><h3>Következő teendők</h3></div><button className="linkBtn" onClick={()=>setTab("garage")}>Mind</button></div>
@@ -302,7 +360,25 @@ export default function App(){
 
   const ForecastView=()=> <div className="view">
     <section className="pageHero"><ThermometerSnowflake/><div><small>14 NAPOS TREND</small><h2>Előrejelzés</h2><p>{place.name} · automatikus kerékcsere-értékelés</p></div></section>
-    <section className={"recommend "+result.level}><div className="recIcon"><Snowflake/></div><div><small>JAVASLAT</small><h2>{result.title}</h2><p>{result.text}</p></div></section>
+    <section className={"decisionCard compact "+result.level}>
+      <div className="decisionTop">
+        <div className="recIcon">{result.level==="urgent"||result.level==="warning"?<Snowflake/>:<ShieldCheck/>}</div>
+        <div className="decisionTitle"><small>14 NAPOS ÉRTÉKELÉS</small><h2>{result.title}</h2><p>{result.text}</p></div>
+        <span className={"confidence "+result.level}>{result.confidence}</span>
+      </div>
+      <div className="forecastSummary">
+        <div><b>{result.coldMornings7}/7</b><span>hideg reggel</span></div>
+        <div><b>{result.veryColdMornings7}/7</b><span>≤ 4 °C reggel</span></div>
+        <div><b>{result.frostIndex>=0?shortDate(days[result.frostIndex].date):"nincs"}</b><span>első fagy</span></div>
+        <div><b>{result.snowIndex>=0?shortDate(days[result.snowIndex].date):"nincs"}</b><span>hójel</span></div>
+      </div>
+      <div className="whyBox"><b>Döntési indokok</b><ul>{result.reasons.map((reason,i)=><li key={i}>{reason}</li>)}</ul></div>
+    </section>
+    <section className="tempTrend">
+      <div className="sectionHead"><div><ThermometerSnowflake size={20}/><h3>Minimum-hőmérséklet trend</h3></div><span>reggeli kockázat</span></div>
+      <div className="trendBars">{days.map(d=>{const h=Math.max(10,Math.min(78,52-d.min*3));return <div className="trendCol" key={d.date}><div className={"trendBar "+(d.min<=0?"freeze":d.min<=4?"cold":d.min<=7?"cool":"warm")} style={{height:h+"px"}}/><b>{d.min}°</b><small>{dayName(d.date)}</small></div>})}</div>
+      <div className="trendLegend"><span>0 °C: fagy</span><span>4 °C: erős hidegjel</span><span>7 °C: figyelmeztető küszöb</span></div>
+    </section>
     <section className="forecast full">
       {days.map((d,i)=><div className="forecastRow" key={d.date}><div><small>{i===0?"MA":dayName(d.date).toUpperCase()}</small><b>{new Intl.DateTimeFormat("hu-HU",{month:"short",day:"numeric"}).format(new Date(d.date+"T12:00:00"))}</b></div><span className="bigWx">{icon(d.code)}</span><div className="temp"><b>{d.max}°</b><span>{d.min}°</span></div><div className="risk"><span>{d.rain}% csapadék</span><span>{d.snow>0?d.snow+" cm hó":"nincs hó"}</span></div></div>)}
     </section>
