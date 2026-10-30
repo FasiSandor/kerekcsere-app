@@ -172,6 +172,7 @@ export default function App(){
   const [serviceForm,setServiceForm]=useState({date:new Date().toISOString().slice(0,10),title:"",mileage:"",note:""});
   const [carlyText,setCarlyText]=useState("");
   const [hydrated,setHydrated]=useState(false);
+  const [weatherUpdatedAt,setWeatherUpdatedAt]=useState<Date|null>(null);
   const tire=car.currentTire;
 
   useEffect(()=>{
@@ -240,6 +241,7 @@ export default function App(){
           date,max:Math.round(j.daily.temperature_2m_max[i]),min:Math.round(j.daily.temperature_2m_min[i]),
           code:j.daily.weather_code[i],snow:j.daily.snowfall_sum[i]||0,rain:j.daily.precipitation_probability_max[i]||0
         })));
+        setWeatherUpdatedAt(new Date());
       }catch{ setDays([]); }
     };
     run();
@@ -325,6 +327,7 @@ export default function App(){
 
     <section className="forecast">
       <div className="sectionHead"><div><ThermometerSnowflake size={20}/><h3>Időjárás előrejelzés <span>(14 nap)</span></h3></div><em className={String(result.level)}>{result.level==="urgent"?<AlertTriangle size={14}/>:<Check size={14}/>} {result.level==="urgent"?"Figyelmeztetés":result.level==="warning"?"Készülj":"Rendben"}</em></div>
+      <div className="weatherMeta"><span><MapPin size={12}/>{place.name}</span><span>Open-Meteo</span><span>{weatherUpdatedAt?"Frissítve "+weatherUpdatedAt.toLocaleTimeString("hu-HU",{hour:"2-digit",minute:"2-digit"}):"Frissítés…"}</span></div>
       <div className="days">{days.length?days.map((d,i)=><div className="day" key={d.date}><small>{i===0?"Ma":dayName(d.date)}</small><span>{icon(d.code)}</span><b>{d.max}°</b><i>{d.min}°</i></div>):<p>Friss adatok betöltése…</p>}</div>
     </section>
 
@@ -359,7 +362,7 @@ export default function App(){
   </div>;
 
   const ForecastView=()=> <div className="view">
-    <section className="pageHero"><ThermometerSnowflake/><div><small>14 NAPOS TREND</small><h2>Előrejelzés</h2><p>{place.name} · automatikus kerékcsere-értékelés</p></div></section>
+    <section className="pageHero"><ThermometerSnowflake/><div><small>14 NAPOS TREND</small><h2>Előrejelzés</h2><p>{place.name} · Open-Meteo · {weatherUpdatedAt?"frissítve "+weatherUpdatedAt.toLocaleTimeString("hu-HU",{hour:"2-digit",minute:"2-digit"}):"frissítés folyamatban"}</p></div></section>
     <section className={"decisionCard compact "+result.level}>
       <div className="decisionTop">
         <div className="recIcon">{result.level==="urgent"||result.level==="warning"?<Snowflake/>:<ShieldCheck/>}</div>
@@ -373,6 +376,10 @@ export default function App(){
         <div><b>{result.snowIndex>=0?shortDate(days[result.snowIndex].date):"nincs"}</b><span>hójel</span></div>
       </div>
       <div className="whyBox"><b>Döntési indokok</b><ul>{result.reasons.map((reason,i)=><li key={i}>{reason}</li>)}</ul></div>
+    </section>
+    <section className="horizonStrip">
+      <div><small>KÖVETKEZŐ 7 NAP</small><b>{result.coldMornings7} hideg reggel</b><span>{result.veryColdMornings7} × 4 °C vagy hidegebb</span></div>
+      <div><small>KÖVETKEZŐ 14 NAP</small><b>{result.min14===null?"—":result.min14+" °C minimum"}</b><span>{result.frostIndex>=0?"fagyjel: "+shortDate(days[result.frostIndex].date):"nincs fagyjel"}</span></div>
     </section>
     <section className="tempTrend">
       <div className="sectionHead"><div><ThermometerSnowflake size={20}/><h3>Minimum-hőmérséklet trend</h3></div><span>reggeli kockázat</span></div>
